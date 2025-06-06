@@ -1,0 +1,109 @@
+# .github/workflows/gitcompare.yml
+name: GitCompare
+
+on:
+  workflow_dispatch:
+    inputs:
+      good_build:
+        description: '“Good” build string (e.g. the full output of `java -version` + OpenJ9/OMR/JCL lines)'
+        required: true
+        type: string
+      bad_build:
+        description: '“Bad” build string (same format as good_build)'
+        required: true
+        type: string
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    env:
+      GOOD_BUILD: ${{ github.event.inputs.good_build }}
+      BAD_BUILD:  ${{ github.event.inputs.bad_build }}
+    steps:
+      - name: Checkout (if needed)
+        uses: actions/checkout@v4
+
+      - name: Extract commit hashes from “good” build
+        id: extract_good
+        run: |
+          # Extract the OpenJ9 commit hash from GOOD_BUILD
+          good_openj9=$(printf '%s\n' "$GOOD_BUILD" \
+            | grep -Po 'OpenJ9\s*-\s*\K[0-9a-f]+' | head -1)
+          # Extract the OMR commit hash
+          good_omr=$(printf '%s\n' "$GOOD_BUILD" \
+            | grep -Po 'OMR\s*-\s*\K[0-9a-f]+' | head -1)
+          # Extract the JCL (OpenJDK) commit hash
+          good_jcl=$(printf '%s\n' "$GOOD_BUILD" \
+            | grep -Po 'JCL\s*-\s*\K[0-9a-f]+' | head -1)
+
+          # Validate that we found something
+          if [ -z "$good_openj9" ] || [ -z "$good_omr" ] || [ -z "$good_jcl" ]; then
+            echo ">> ERROR: Could not parse one of the commit hashes from GOOD_BUILD"
+            echo "Good build string was:"
+            echo "$GOOD_BUILD"
+            exit 1
+          fi
+
+          echo "Good OpenJ9 commit: $good_openj9"
+          echo "Good OMR commit:    $good_omr"
+          echo "Good JCL commit:    $good_jcl"
+
+          # Set them as outputs
+          echo "::set-output name=openj9::$good_openj9"
+          echo "::set-output name=omr::$good_omr"
+          echo "::set-output name=jcl::$good_jcl"
+
+      - name: Extract commit hashes from “bad” build
+        id: extract_bad
+        run: |
+          bad_openj9=$(printf '%s\n' "$BAD_BUILD" \
+            | grep -Po 'OpenJ9\s*-\s*\K[0-9a-f]+' | head -1)
+          bad_omr=$(printf '%s\n' "$BAD_BUILD" \
+            | grep -Po 'OMR\s*-\s*\K[0-9a-f]+' | head -1)
+          bad_jcl=$(printf '%s\n' "$BAD_BUILD" \
+            | grep -Po 'JCL\s*-\s*\K[0-9a-f]+' | head -1)
+
+          if [ -z "$bad_openj9" ] || [ -z "$bad_omr" ] || [ -z "$bad_jcl" ]; then
+            echo ">> ERROR: Could not parse one of the commit hashes from BAD_BUILD"
+            echo "Bad build string was:"
+            echo "$BAD_BUILD"
+            exit 1
+          fi
+
+          echo "Bad OpenJ9 commit: $bad_openj9"
+          echo "Bad OMR commit:    $bad_omr"
+          echo "Bad JCL commit:    $bad_jcl"
+
+          echo "::set-output name=openj9::$bad_openj9"
+          echo "::set-output name=omr::$bad_omr"
+          echo "::set-output name=jcl::$bad_jcl"
+
+      - name: Construct compare URLs
+        id: make_urls
+        run: |
+          good_openj9=${{ steps.extract_good.outputs.openj9 }}
+          bad_openj9=${{ steps.extract_bad.outputs.openj9 }}
+          good_omr=${{ steps.extract_good.outputs.omr }}
+          bad_omr=${{ steps.extract_bad.outputs.omr }}
+          good_jcl=${{ steps.extract_good.outputs.jcl }}
+          bad_jcl=${{ steps.extract_bad.outputs.jcl }}
+
+          url_openj9="https://github.com/eclipse-openj9/openj9/compare/${good_openj9}...${bad_openj9}"
+          url_omr="https://github.com/eclipse-omr/omr/compare/${good_omr}...${bad_omr}"
+          url_jcl="https://github.com/ibmruntimes/openj9-openjdk-jdk21/compare/${good_jcl}...${bad_jcl}"
+
+          echo "OpenJ9 compare URL: $url_openj9"
+          echo "OMR  compare URL:    $url_omr"
+          echo "JCL  compare URL:    $url_jcl"
+
+          # Expose as outputs if other steps need them
+          echo "::set-output name=url_openj9::$url_openj9"
+          echo "::set-output name=url_omr::$url_omr"
+          echo "::set-output name=url_jcl::$url_jcl"
+
+      - name: Print final compare URLs
+        run: |
+          echo "=== FINAL OUTPUT ==="
+          echo "${{ steps.make_urls.outputs.url_openj9 }}"
+          echo "${{ steps.make_urls.outputs.url_omr }}"
+          echo "${{ steps.make_urls.outputs.url_jcl }}"
